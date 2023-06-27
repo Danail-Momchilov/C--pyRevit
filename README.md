@@ -1,1 +1,2 @@
-A list of interesting and useful pyRevit scrypts, written in C#
+C#-pyRevit
+A list of interesting and useful pyRevit scrypts I have created, tested and optimised
