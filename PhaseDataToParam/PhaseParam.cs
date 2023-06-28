@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -20,56 +20,53 @@ namespace PhaseToParam
 
                 Transaction t = new Transaction(doc, "Update Elements Parameters");
 
-                FilteredElementCollector wallsCollector = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType();
+                List<BuiltInCategory> categoriesCollection = new List<BuiltInCategory>();
+                categoriesCollection.Add(BuiltInCategory.OST_Walls);
+                categoriesCollection.Add(BuiltInCategory.OST_Doors);
+                categoriesCollection.Add(BuiltInCategory.OST_Windows);
+
+                ElementMulticategoryFilter multicategoryFilter = new ElementMulticategoryFilter(categoriesCollection);
+
+                FilteredElementCollector elemCollector = new FilteredElementCollector(doc).WherePasses(multicategoryFilter).WhereElementIsNotElementType();
                 
-                string phases = "";
+                string output = "PhaseData was updated for all Walls, Doors and Windows in the project";
 
                 t.Start();
-                foreach (Wall wall in wallsCollector)
+                foreach (var elem in elemCollector)
                 {
-                    string phaseCreated = wall.get_Parameter(BuiltInParameter.PHASE_CREATED).AsValueString();
-                    phases = phases + phaseCreated + "\n";
-                    string phaseDemolished = wall.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED).AsValueString();
-                    phases = phases + phaseDemolished + "\n";
+                    string phaseCreated = elem.get_Parameter(BuiltInParameter.PHASE_CREATED).AsValueString();
+                    string phaseDemolished = elem.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED).AsValueString();
+
+                    Parameter phaseDataCheck = elem.LookupParameter("PhaseData");
+                    if (phaseDataCheck == null)
+                    {
+                        output = "Parameter PhaseData is either not loaded or not assigned to all of the following categories: Walls, Doors, Windows";
+                        break;
+                    }
 
                     if (phaseCreated != null)
                     {
                         if (phaseCreated == "Existing")
                         {
-                            switch (phaseDemolished)
-                            {
-                                case "Phase 1":
-                                    wall.LookupParameter("Comments").Set("Demo P1");
-                                    break;
-                                case "Phase 2":
-                                    wall.LookupParameter("Comments").Set("Demo P2");
-                                    break;
-                                case "Phase 3":
-                                    wall.LookupParameter("Comments").Set("Demo P3");
-                                    break;
-                                case "None":
-                                    wall.LookupParameter("Comments").Set("Existing");
-                                    break;
-                                default:
-                                    break;
-                            }
+                            if (phaseDemolished == "None")
+                                elem.LookupParameter("PhaseData").Set("Existing");
+                            else
+                                elem.LookupParameter("PhaseData").Set("Demolished");
                         }
                         else if (phaseCreated.Contains("Phase"))
                         {
-                            if (phaseDemolished.Contains("Phase"))
-                                wall.LookupParameter("Comments").Set("Temp");
-                            else if (phaseDemolished == "None")
-                                wall.LookupParameter("Comments").Set("New P" + wall.get_Parameter(BuiltInParameter.PHASE_CREATED).AsValueString().Last());
+                            if (phaseDemolished == "None")
+                                elem.LookupParameter("PhaseData").Set($"Created {phaseCreated}");
+                            else
+                                elem.LookupParameter("PhaseData").Set("Demolished");
                         }
-                        else if (phaseCreated == "New Construction")
-                            wall.LookupParameter("Comments").Set("New");
                     }
                     else
-                        wall.LookupParameter("Comments").Set("This was null");
+                        elem.LookupParameter("Comments").Set("This was null");
                 }
                 t.Commit();
 
-                TaskDialog.Show("Title1", phases);
+                TaskDialog.Show("Report", output);
                 return Result.Succeeded;
             }
             catch (Exception e)
