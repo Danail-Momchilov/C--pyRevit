@@ -20,54 +20,78 @@ namespace PhaseToParam
 
                 Transaction t = new Transaction(doc, "Update Elements Parameters");
 
-                List<BuiltInCategory> categoriesCollection = new List<BuiltInCategory>();
-                categoriesCollection.Add(BuiltInCategory.OST_Walls);
-                categoriesCollection.Add(BuiltInCategory.OST_Doors);
-                categoriesCollection.Add(BuiltInCategory.OST_Windows);
+                // get all categories in the document
+                Categories categories = doc.Settings.Categories;
 
-                ElementMulticategoryFilter multicategoryFilter = new ElementMulticategoryFilter(categoriesCollection);
+                // get all elements from model categories, availabe in the project
+                FilteredElementCollector elemCollector = new FilteredElementCollector(doc).WhereElementIsNotElementType();
+                List<Element> modelElements = new List<Element>();
 
-                FilteredElementCollector elemCollector = new FilteredElementCollector(doc).WherePasses(multicategoryFilter).WhereElementIsNotElementType();
+                foreach (Element element in elemCollector)
+                    if (element != null && element.Category != null)
+                        if (element.Category.CategoryType == CategoryType.Model)
+                            modelElements.Add(element);
                 
-                string output = "PhaseData was updated for all Walls, Doors and Windows in the project";
+                // check if parameter is loaded for all model elements
+                string output = "Parameter PhaseData is either not loaded or not assigned to all model categories, available in the current document. Please assign it to the following categories:\n";
+                bool isNotLoaded = false;
+                List<string> catNames = new List<string>();
 
-                t.Start();
-                foreach (var elem in elemCollector)
-                {
-                    string phaseCreated = elem.get_Parameter(BuiltInParameter.PHASE_CREATED).AsValueString();
-                    string phaseDemolished = elem.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED).AsValueString();
-
-                    Parameter phaseDataCheck = elem.LookupParameter("PhaseData");
+                foreach (Element element in modelElements)
+                {                    
+                    Parameter phaseDataCheck = element.LookupParameter("PhaseData");
                     if (phaseDataCheck == null)
                     {
-                        output = "Parameter PhaseData is either not loaded or not assigned to all of the following categories: Walls, Doors, Windows";
-                        break;
-                    }
-
-                    if (phaseCreated != null)
-                    {
-                        if (phaseCreated == "Existing")
+                        if (!catNames.Contains(element.Category.Name))
                         {
-                            if (phaseDemolished == "None")
-                                elem.LookupParameter("PhaseData").Set("Existing");
-                            else
-                                elem.LookupParameter("PhaseData").Set("Demolished");
-                        }
-                        else if (phaseCreated.Contains("Phase"))
-                        {
-                            if (phaseDemolished == "None")
-                                elem.LookupParameter("PhaseData").Set($"Created {phaseCreated}");
-                            else
-                                elem.LookupParameter("PhaseData").Set("Demolished");
+                            catNames.Add(element.Category.Name);
+                            output += $"\n{element.Category.Name}";
+                            isNotLoaded = true;
                         }
                     }
-                    else
-                        elem.LookupParameter("Comments").Set("This was null");
                 }
-                t.Commit();
+                if (isNotLoaded)
+                {
+                    TaskDialog.Show("Issues Found", output);
+                    return Result.Succeeded;
+                }
+                else
+                {
+                    output = "Phase Data was updated for all model elements";
+                    t.Start();
+                    foreach (var elem in modelElements)
+                    {
+                        string phaseCreated = elem.get_Parameter(BuiltInParameter.PHASE_CREATED).AsValueString();
+                        string phaseDemolished = elem.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED).AsValueString();
 
-                TaskDialog.Show("Report", output);
-                return Result.Succeeded;
+                        if (phaseCreated != null)
+                        {
+                            if (phaseCreated == "Existing")
+                            {
+                                if (phaseDemolished == "None")
+                                    elem.LookupParameter("PhaseData").Set("Existing");
+                                else
+                                    elem.LookupParameter("PhaseData").Set("Demolished");
+                            }
+                            else if (phaseCreated.Contains("Phase"))
+                            {
+                                if (phaseDemolished == "None")
+                                    elem.LookupParameter("PhaseData").Set($"Created {phaseCreated}");
+                                else
+                                    elem.LookupParameter("PhaseData").Set("Demolished");
+                            }
+                        }
+                        else
+                        {
+                            output += $"\nException: {elem.Id}";
+                            elem.LookupParameter("PhaseData").Set("Phase created is null");
+                        }
+                    }
+                    t.Commit();
+
+                    TaskDialog.Show("Task Completed", output);
+                    return Result.Succeeded;
+                }                
             }
             catch (Exception e)
             {
