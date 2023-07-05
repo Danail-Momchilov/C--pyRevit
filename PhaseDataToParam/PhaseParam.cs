@@ -20,8 +20,13 @@ namespace PhaseToParam
 
                 Transaction t = new Transaction(doc, "Update Elements Parameters");
 
-                // get all categories in the document
-                Categories categories = doc.Settings.Categories;
+                // list with 'allowed' categories, that will be skipped by the program
+                List<string> allowedCats = new List<string>() {
+                    "Materials", "Primary Contours", "Project Information", "Internal Origin", "HVAC Zones", "Survey Point", "Project Base Point", "Sun Path", "Material Assest", "Sheets", "Cameras",
+                    "RVT Links", "Curtain Wall Grids","<Sketch>","Rectangular Straight Wall Opening","Railing Rail Path Extension Lines","Roof opening cut","Curtain Roof Grids","Curtain System Grids",
+                    "<Room Separation>","Rooms","Legend Components","Material Assets","Pipe Segments","Lines","Runs","Landings","Top Rails","Balusters","Fascias","Curtain Systems","Duct Systems",
+                    "Center Line","Conduit Runs","Raster Images","Piping Systems","Center line"
+                };
 
                 // get all elements from model categories, availabe in the project
                 FilteredElementCollector elemCollector = new FilteredElementCollector(doc).WhereElementIsNotElementType();
@@ -29,7 +34,7 @@ namespace PhaseToParam
 
                 foreach (Element element in elemCollector)
                     if (element != null && element.Category != null)
-                        if (element.Category.CategoryType == CategoryType.Model)
+                        if (element.Category.CategoryType == CategoryType.Model && !allowedCats.Contains(element.Category.Name) && !element.Category.Name.Contains(".dwg"))
                             modelElements.Add(element);
                 
                 // check if parameter is loaded for all model elements
@@ -50,6 +55,9 @@ namespace PhaseToParam
                         }
                     }
                 }
+                                
+                int elemCounter = 0;
+                
                 if (isNotLoaded)
                 {
                     TaskDialog.Show("Issues Found", output);
@@ -61,37 +69,43 @@ namespace PhaseToParam
                     t.Start();
                     foreach (var elem in modelElements)
                     {
-                        string phaseCreated = elem.get_Parameter(BuiltInParameter.PHASE_CREATED).AsValueString();
-                        string phaseDemolished = elem.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED).AsValueString();
+                        Parameter phaseCreated = elem.get_Parameter(BuiltInParameter.PHASE_CREATED);
+                        Parameter phaseDemolished = elem.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED);
 
-                        if (phaseCreated != null)
+                        if (phaseCreated != null && phaseDemolished != null)
                         {
-                            if (phaseCreated == "Existing")
+                            string phaseCreatedTxt = phaseCreated.AsValueString();
+                            string phaseDemolishedTxt = phaseDemolished.AsValueString();
+
+                            if (phaseCreatedTxt == "Existing")
                             {
-                                if (phaseDemolished == "None")
+                                if (phaseDemolishedTxt == "None")
                                     elem.LookupParameter("PhaseData").Set("Existing");
                                 else
-                                    elem.LookupParameter("PhaseData").Set("Demolished");
+                                    elem.LookupParameter("PhaseData").Set($"Demolished {phaseDemolishedTxt}");
                             }
-                            else if (phaseCreated.Contains("Phase"))
+                            else
                             {
-                                if (phaseDemolished == "None")
-                                    elem.LookupParameter("PhaseData").Set($"Created {phaseCreated}");
+                                if (phaseDemolishedTxt == "None")
+                                    elem.LookupParameter("PhaseData").Set($"Created {phaseCreatedTxt}");
                                 else
-                                    elem.LookupParameter("PhaseData").Set("Demolished");
+                                    elem.LookupParameter("PhaseData").Set($"Demolished {phaseDemolishedTxt}");
                             }
+                            elemCounter++;
                         }
                         else
                         {
-                            output += $"\nException: {elem.Id}";
-                            elem.LookupParameter("PhaseData").Set("Phase created is null");
+                            if (!output.Contains(elem.Category.Name))
+                                output += $"\nException: {elem.Id} / {elem.Category.Name}";
                         }
                     }
-                    t.Commit();
+                }
+                t.Commit();
 
-                    TaskDialog.Show("Task Completed", output);
-                    return Result.Succeeded;
-                }                
+                output += $"\nA total number of {elemCounter} elements' parameters were updated";                    
+
+                TaskDialog.Show("Task Completed", output);
+                return Result.Succeeded;          
             }
             catch (Exception e)
             {
